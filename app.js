@@ -95,6 +95,7 @@ function choose(day, prob, idx) {
   if (Array.from(choicesEl.children).some(ch => ch.classList.contains('correct') || ch.classList.contains('wrong'))) return;
 
   const isCorrect = (idx === prob.answer);
+
   // 見た目
   Array.from(choicesEl.children).forEach((ch, i) => {
     if (i === prob.answer) ch.classList.add('correct');
@@ -102,23 +103,32 @@ function choose(day, prob, idx) {
     ch.style.pointerEvents = 'none';
   });
 
-  // スコア・履歴（同じDayは一度だけXP付与）
-  const already = state.history.some(h => h.day === day);
-  if (isCorrect && !already) {
-    state.xp = Math.min(70, state.xp + 10);
-  }
-  if (!already) {
+  // --- 加点ロジック（未正解→正解は+10、既に正解済みは加点なし） ---
+  const prev = state.history.find(h => h.day === day);
+  let awarded = false;
+
+  if (!prev) {
+    // 初回答
+    if (isCorrect) {
+      state.xp = Math.min(70, state.xp + 10);
+      awarded = true;
+    }
     state.history.push({ day, correct: isCorrect, choiceIndex: idx });
   } else {
-    // 既に履歴がある場合は上書き（正誤のみ更新）
+    // 再回答：未正解→正解なら加点、正解→再正解は加点なし
+    if (!prev.correct && isCorrect) {
+      state.xp = Math.min(70, state.xp + 10);
+      awarded = true;
+    }
     state.history = state.history.map(h => h.day === day ? { ...h, correct: isCorrect, choiceIndex: idx } : h);
   }
   save(state);
 
-  // 結果表示
+  // 結果表示（実際に加点されたかどうかを表示に反映）
   resultEl.classList.remove('hidden');
+  const gainText = awarded ? ' +10 XP' : (isCorrect ? '（加点済み）' : '');
   resultEl.innerHTML = `
-    <p>${isCorrect ? '✅ 正解！ +10 XP' : '❌ 不正解'}</p>
+    <p>${isCorrect ? '✅ 正解！' : '❌ 不正解'}${gainText}</p>
     <p><strong>解説：</strong>${prob.explain}</p>
   `;
   nextDayBtn.classList.remove('hidden');
