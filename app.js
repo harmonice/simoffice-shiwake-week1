@@ -1,5 +1,5 @@
 // ---- 状態管理（localStorage） ----
-const KEY = "simoffice-keiri-week1";
+const KEY = "simoffice-shiwake-week1";
 const initState = () => ({ currentDay: 1, xp: 0, history: [] }); // history: {day, correct, choiceIndex}
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initState(); } catch { return initState(); } };
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s));
