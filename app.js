@@ -44,6 +44,9 @@ const scoreLine = document.getElementById('scoreLine');
 const breakdownEl = document.getElementById('breakdown');
 
 let steps = null;
+// 10/10 をいったん見せてから遷移するためのワンショットフラグ
+let showFinalProgressOnce = false;
+
 
 // ---- 初期化 ----
 async function boot() {
@@ -182,9 +185,26 @@ function choose(stepNo, idx, item, choiceIndex) {
     <p>${isCorrect ? '✅ 正解！' : '❌ 不正解'}${awarded ? ' +1 XP' : (isCorrect ? '（加点済み）' : '')}</p>
     <p><strong>解説：</strong>${item.explain}</p>
   `;
+
+  // ▼ 追加：最後の問題は 10/10 を一度見せてから遷移
+  const st = steps[stepNo - 1];
+  const isLastQuestionInStep = !retry.active && (idx === st.items.length - 1);
+  if (isLastQuestionInStep) {
+    stepProg.textContent = `進捗：${st.items.length} / ${st.items.length}`;
+    showFinalProgressOnce = true;
+    nextBtn.textContent = 'Step完了 → 次へ';
+  } else {
+    nextBtn.textContent = '次の問題へ';
+  }
+
   nextBtn.classList.remove('hidden');
 }
-function nextQuestion() {
+function nextQuestion() {  // 10/10 を見せるためのワンクッション
+  if (showFinalProgressOnce) {
+    showFinalProgressOnce = false;
+    return; // このクリックではまだ遷移しない（10/10を見せたままにする）
+  }
+
   const stepNo = state.currentStep;
   const st = steps[stepNo - 1];
 
