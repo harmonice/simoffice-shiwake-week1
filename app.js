@@ -1,13 +1,11 @@
 // ---- 状態管理（localStorage） ----
 const KEY = "simoffice-shiwake-steps";
 const initState = () => ({
-  currentStep: 1,         // 1..5
-  idxInStep: 0,           // 0..9（10問）
-  xp: 0,                  // 最大 50 (= 5step * 10問)
+  currentStep: 1,   // 1..5
+  idxInStep: 0,     // 0..9（1Step=10問想定）
+  xp: 0,            // 最大 50 (= 5step * 10問)
   // 履歴: { step, idx, correct, choiceIndex }
-  history: [],
-  // 各ステップの正解数（集計に便利）
-  stepSummary: { 1:0, 2:0, 3:0, 4:0, 5:0 }
+  history: []
 });
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initState(); } catch { return initState(); } };
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s));
@@ -38,6 +36,7 @@ let steps = null;
 
 // ---- 初期化 ----
 async function boot() {
+  // problems.json の { "steps": [...] } を読み込み
   steps = await fetch('./problems.json').then(r => r.json()).then(j => j.steps);
   renderHome();
   wire();
@@ -65,8 +64,9 @@ function renderHome() {
   stepButtons.innerHTML = '';
   steps.forEach((st, i) => {
     const stepNo = i + 1;
-    const corrects = state.stepSummary[stepNo] || 0;
-    const done = corrects >= st.items.length; // 全問正解で完了表示
+    // そのStepで正解済みの数を履歴から集計
+    const corrects = state.history.filter(h => h.step === stepNo && h.correct).length;
+    const done = corrects === st.items.length && st.items.length > 0;
     const btn = document.createElement('button');
     btn.className = 'daybtn' + (done ? ' done' : '');
     btn.textContent = `Step ${stepNo}（${corrects}/${st.items.length}）` + (done ? ' ✅' : '');
@@ -78,13 +78,15 @@ function renderHome() {
 // ---- Step開始 ----
 function startStep(stepNo) {
   state.currentStep = stepNo;
-  // 途中から再開するなら idxInStep を履歴から復元（未回答の最初へ）
+
+  // 未回答の最初の問題へ（履歴から決定）
   const answeredIdx = state.history
     .filter(h => h.step === stepNo)
     .map(h => h.idx);
   let nextIdx = 0;
   while (answeredIdx.includes(nextIdx)) nextIdx++;
   state.idxInStep = Math.min(nextIdx, steps[stepNo - 1].items.length - 1);
+
   save(state);
   renderQuestion();
   show('step');
@@ -95,9 +97,11 @@ function renderQuestion() {
   const idx = state.idxInStep;
   const st = steps[stepNo - 1];
   const item = st.items[idx];
+
   stepTitle.textContent = `${st.title}（Step ${stepNo}）`;
   stepProg.textContent = `進捗：${idx + 1} / ${st.items.length}`;
   questionEl.textContent = item.q;
+
   resultEl.classList.add('hidden');
   resultEl.textContent = '';
   nextBtn.classList.add('hidden');
@@ -125,15 +129,18 @@ function choose(stepNo, idx, item, choiceIndex) {
     ch.style.pointerEvents = 'none';
   });
 
-  // 加点（その問題で未正解→正解のときだけ +1）
+  // XP付与：その問題で「未正解→正解」になったときだけ +1
   const prev = state.history.find(h => h.step === stepNo && h.idx === idx);
   let awarded = false;
+
   if (!prev) {
-    if (isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; state.stepSummary[stepNo] = (state.stepSummary[stepNo] || 0) + 1; }
+    if (isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; }
     state.history.push({ step: stepNo, idx, correct: isCorrect, choiceIndex });
   } else {
-    if (!prev.correct && isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; state.stepSummary[stepNo] = (state.stepSummary[stepNo] || 0) + 1; }
-    state.history = state.history.map(h => (h.step === stepNo && h.idx === idx) ? { ...h, correct: isCorrect, choiceIndex } : h);
+    if (!prev.correct && isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; }
+    state.history = state.history.map(h =>
+      (h.step === stepNo && h.idx === idx) ? { ...h, correct: isCorrect, choiceIndex } : h
+    );
   }
   save(state);
 
@@ -149,6 +156,7 @@ function choose(stepNo, idx, item, choiceIndex) {
 function nextQuestion() {
   const stepNo = state.currentStep;
   const st = steps[stepNo - 1];
+
   if (state.idxInStep < st.items.length - 1) {
     state.idxInStep += 1;
     save(state);
@@ -167,15 +175,16 @@ function nextQuestion() {
   }
 }
 
-// ---- Summary描画 ----
+// ---- Summary描画（historyから都度集計するので過剰カウントしない） ----
 function renderSummary() {
-  const totalCorrect = Object.values(state.stepSummary).reduce((a,b)=>a+b,0);
-  scoreLine.textContent = `総正答：${totalCorrect} / ${steps.reduce((n,st)=>n+st.items.length,0)}（XP：${state.xp}/50）`;
+  const totalCorrect = state.history.filter(h => h.correct).length;
+  const totalQuestions = steps.reduce((n, st) => n + st.items.length, 0);
+  scoreLine.textContent = `総正答：${totalCorrect} / ${totalQuestions}（XP：${state.xp}/50）`;
 
   breakdownEl.innerHTML = '';
   steps.forEach((st, i) => {
     const stepNo = i + 1;
-    const c = state.stepSummary[stepNo] || 0;
+    const c = state.history.filter(h => h.step === stepNo && h.correct).length;
     const div = document.createElement('div');
     div.className = 'hint';
     div.innerHTML = `<strong>Step ${stepNo}：</strong>${c} / ${st.items.length} 正解<br><em>Topics：</em>${st.topic || '—'}`;
