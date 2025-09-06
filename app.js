@@ -1,35 +1,44 @@
 // ---- 状態管理（localStorage） ----
-const KEY = "simoffice-shiwake-week1";
-const initState = () => ({ currentDay: 1, xp: 0, history: [] }); // history: {day, correct, choiceIndex}
+const KEY = "simoffice-shiwake-steps";
+const initState = () => ({
+  currentStep: 1,         // 1..5
+  idxInStep: 0,           // 0..9（10問）
+  xp: 0,                  // 最大 50 (= 5step * 10問)
+  // 履歴: { step, idx, correct, choiceIndex }
+  history: [],
+  // 各ステップの正解数（集計に便利）
+  stepSummary: { 1:0, 2:0, 3:0, 4:0, 5:0 }
+});
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initState(); } catch { return initState(); } };
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s));
 let state = load();
 
 // ---- 画面要素 ----
 const secHome = document.getElementById('home');
-const secDay = document.getElementById('day');
+const secStep = document.getElementById('step');
 const secSummary = document.getElementById('summary');
-const dayButtons = document.getElementById('dayButtons');
+const stepButtons = document.getElementById('stepButtons');
 const xpText = document.getElementById('xpText');
 const barFill = document.getElementById('barFill');
 const goSummary = document.getElementById('goSummary');
 
 const backHome = document.getElementById('backHome');
 const backHome2 = document.getElementById('backHome2');
-const dayTitle = document.getElementById('dayTitle');
+const stepTitle = document.getElementById('stepTitle');
+const stepProg = document.getElementById('stepProg');
 const questionEl = document.getElementById('question');
 const choicesEl = document.getElementById('choices');
 const resultEl = document.getElementById('result');
-const nextDayBtn = document.getElementById('nextDay');
+const nextBtn = document.getElementById('nextBtn');
 
 const scoreLine = document.getElementById('scoreLine');
-const hintsEl = document.getElementById('hints');
+const breakdownEl = document.getElementById('breakdown');
 
-let problems = null;
+let steps = null;
 
 // ---- 初期化 ----
 async function boot() {
-  problems = await fetch('./problems.json').then(r => r.json());
+  steps = await fetch('./problems.json').then(r => r.json()).then(j => j.steps);
   renderHome();
   wire();
 }
@@ -37,11 +46,11 @@ function wire() {
   goSummary.onclick = () => show('summary');
   backHome.onclick = () => show('home');
   backHome2.onclick = () => show('home');
-  nextDayBtn.onclick = () => { show('home'); };
+  nextBtn.onclick = () => nextQuestion();
 }
 function show(which) {
   secHome.classList.toggle('hidden', which !== 'home');
-  secDay.classList.toggle('hidden', which !== 'day');
+  secStep.classList.toggle('hidden', which !== 'step');
   secSummary.classList.toggle('hidden', which !== 'summary');
   if (which === 'home') renderHome();
   if (which === 'summary') renderSummary();
@@ -49,108 +58,129 @@ function show(which) {
 
 // ---- Home描画 ----
 function renderHome() {
-  const xpPct = Math.min(100, Math.round((state.xp / 70) * 100));
-  xpText.textContent = `${state.xp} / 70 XP`;
+  const xpPct = Math.min(100, Math.round((state.xp / 50) * 100));
+  xpText.textContent = `${state.xp} / 50 XP`;
   barFill.style.width = xpPct + '%';
 
-  dayButtons.innerHTML = '';
-  for (let d = 1; d <= 6; d++) {
-    const done = state.history.some(h => h.day === d);
+  stepButtons.innerHTML = '';
+  steps.forEach((st, i) => {
+    const stepNo = i + 1;
+    const corrects = state.stepSummary[stepNo] || 0;
+    const done = corrects >= st.items.length; // 全問正解で完了表示
     const btn = document.createElement('button');
     btn.className = 'daybtn' + (done ? ' done' : '');
-    btn.textContent = `Day ${d}（仕訳）` + (done ? ' ✅' : '');
-    btn.onclick = () => startDay(d);
-    dayButtons.appendChild(btn);
-  }
-  const sunBtn = document.createElement('button');
-  sunBtn.className = 'daybtn';
-  sunBtn.textContent = 'Day 7（振り返り）';
-  sunBtn.onclick = () => show('summary');
-  dayButtons.appendChild(sunBtn);
+    btn.textContent = `Step ${stepNo}（${corrects}/${st.items.length}）` + (done ? ' ✅' : '');
+    btn.onclick = () => startStep(stepNo);
+    stepButtons.appendChild(btn);
+  });
 }
 
-// ---- Day開始 ----
-function startDay(day) {
-  const prob = problems[`day${day}`];
-  if (!prob) return;
-  show('day');
-  dayTitle.textContent = `Day ${day}`;
-  questionEl.textContent = prob.question;
+// ---- Step開始 ----
+function startStep(stepNo) {
+  state.currentStep = stepNo;
+  // 途中から再開するなら idxInStep を履歴から復元（未回答の最初へ）
+  const answeredIdx = state.history
+    .filter(h => h.step === stepNo)
+    .map(h => h.idx);
+  let nextIdx = 0;
+  while (answeredIdx.includes(nextIdx)) nextIdx++;
+  state.idxInStep = Math.min(nextIdx, steps[stepNo - 1].items.length - 1);
+  save(state);
+  renderQuestion();
+  show('step');
+}
+
+function renderQuestion() {
+  const stepNo = state.currentStep;
+  const idx = state.idxInStep;
+  const st = steps[stepNo - 1];
+  const item = st.items[idx];
+  stepTitle.textContent = `${st.title}（Step ${stepNo}）`;
+  stepProg.textContent = `進捗：${idx + 1} / ${st.items.length}`;
+  questionEl.textContent = item.q;
   resultEl.classList.add('hidden');
   resultEl.textContent = '';
-  nextDayBtn.classList.add('hidden');
+  nextBtn.classList.add('hidden');
 
   choicesEl.innerHTML = '';
-  prob.choices.forEach((c, idx) => {
+  item.choices.forEach((c, i) => {
     const div = document.createElement('div');
     div.className = 'choice';
-    div.innerHTML = `<strong>${['A','B','C'][idx]}.</strong> ${c}`;
-    div.onclick = () => choose(day, prob, idx);
+    div.innerHTML = `<strong>${['A','B','C'][i]}.</strong> ${c}`;
+    div.onclick = () => choose(stepNo, idx, item, i);
     choicesEl.appendChild(div);
   });
 }
 
-function choose(day, prob, idx) {
+function choose(stepNo, idx, item, choiceIndex) {
   // 二重回答ガード
   if (Array.from(choicesEl.children).some(ch => ch.classList.contains('correct') || ch.classList.contains('wrong'))) return;
 
-  const isCorrect = (idx === prob.answer);
+  const isCorrect = (choiceIndex === item.answer);
 
   // 見た目
   Array.from(choicesEl.children).forEach((ch, i) => {
-    if (i === prob.answer) ch.classList.add('correct');
-    if (i === idx && i !== prob.answer) ch.classList.add('wrong');
+    if (i === item.answer) ch.classList.add('correct');
+    if (i === choiceIndex && i !== item.answer) ch.classList.add('wrong');
     ch.style.pointerEvents = 'none';
   });
 
-  // --- 加点ロジック（未正解→正解は+10、既に正解済みは加点なし） ---
-  const prev = state.history.find(h => h.day === day);
+  // 加点（その問題で未正解→正解のときだけ +1）
+  const prev = state.history.find(h => h.step === stepNo && h.idx === idx);
   let awarded = false;
-
   if (!prev) {
-    // 初回答
-    if (isCorrect) {
-      state.xp = Math.min(70, state.xp + 10);
-      awarded = true;
-    }
-    state.history.push({ day, correct: isCorrect, choiceIndex: idx });
+    if (isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; state.stepSummary[stepNo] = (state.stepSummary[stepNo] || 0) + 1; }
+    state.history.push({ step: stepNo, idx, correct: isCorrect, choiceIndex });
   } else {
-    // 再回答：未正解→正解なら加点、正解→再正解は加点なし
-    if (!prev.correct && isCorrect) {
-      state.xp = Math.min(70, state.xp + 10);
-      awarded = true;
-    }
-    state.history = state.history.map(h => h.day === day ? { ...h, correct: isCorrect, choiceIndex: idx } : h);
+    if (!prev.correct && isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; state.stepSummary[stepNo] = (state.stepSummary[stepNo] || 0) + 1; }
+    state.history = state.history.map(h => (h.step === stepNo && h.idx === idx) ? { ...h, correct: isCorrect, choiceIndex } : h);
   }
   save(state);
 
-  // 結果表示（実際に加点されたかどうかを表示に反映）
+  // 結果表示
   resultEl.classList.remove('hidden');
-  const gainText = awarded ? ' +10 XP' : (isCorrect ? '（加点済み）' : '');
   resultEl.innerHTML = `
-    <p>${isCorrect ? '✅ 正解！' : '❌ 不正解'}${gainText}</p>
-    <p><strong>解説：</strong>${prob.explain}</p>
+    <p>${isCorrect ? '✅ 正解！' : '❌ 不正解'}${awarded ? ' +1 XP' : (isCorrect ? '（加点済み）' : '')}</p>
+    <p><strong>解説：</strong>${item.explain}</p>
   `;
-  nextDayBtn.classList.remove('hidden');
+  nextBtn.classList.remove('hidden');
+}
+
+function nextQuestion() {
+  const stepNo = state.currentStep;
+  const st = steps[stepNo - 1];
+  if (state.idxInStep < st.items.length - 1) {
+    state.idxInStep += 1;
+    save(state);
+    renderQuestion();
+    return;
+  }
+  // Step終了 → 次のStep or Summaryへ
+  if (stepNo < steps.length) {
+    state.currentStep = stepNo + 1;
+    state.idxInStep = 0;
+    save(state);
+    renderHome();
+    show('home');
+  } else {
+    show('summary');
+  }
 }
 
 // ---- Summary描画 ----
 function renderSummary() {
-  const answered = state.history.length;
-  const corrects = state.history.filter(h => h.correct).length;
-  scoreLine.textContent = `正答 ${corrects} / 6（XP：${state.xp}/70）`;
+  const totalCorrect = Object.values(state.stepSummary).reduce((a,b)=>a+b,0);
+  scoreLine.textContent = `総正答：${totalCorrect} / ${steps.reduce((n,st)=>n+st.items.length,0)}（XP：${state.xp}/50）`;
 
-  // ヒント一覧
-  hintsEl.innerHTML = '';
-  for (let d = 1; d <= 6; d++) {
-    const prob = problems[`day${d}`];
-    const h = document.createElement('div');
-    h.className = 'hint';
-    const you = state.history.find(x => x.day === d);
-    h.innerHTML = `<strong>Day ${d}：</strong>${you?.correct ? '✅' : (you ? '❌' : '— 未回答 —')}<br>
-      <em>ヒント：</em>${prob.hint}`;
-    hintsEl.appendChild(h);
-  }
+  breakdownEl.innerHTML = '';
+  steps.forEach((st, i) => {
+    const stepNo = i + 1;
+    const c = state.stepSummary[stepNo] || 0;
+    const div = document.createElement('div');
+    div.className = 'hint';
+    div.innerHTML = `<strong>Step ${stepNo}：</strong>${c} / ${st.items.length} 正解<br><em>Topics：</em>${st.topic || '—'}`;
+    breakdownEl.appendChild(div);
+  });
 }
 
 boot();
