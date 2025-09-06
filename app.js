@@ -10,6 +10,17 @@ const initState = () => ({
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initState(); } catch { return initState(); } };
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s));
 let state = load();
+// ==== 再挑戦用の一時状態（localStorageには保存しない） ====
+let retry = {
+  active: false,     // 再挑戦ラウンド中か
+  step: null,        // 対象Step番号（1始まり）
+  list: [],          // 再挑戦する設問index配列（0始まり）
+  current: 0,        // 何問目を出しているか（0..total-1）
+  get total(){ return this.list.length; }
+};
+// 通常ラウンド中に間違えた index を集める（Stepごとにクリア）
+let wrongFirst = new Set();
+
 
 // ---- 画面要素 ----
 const secHome = document.getElementById('home');
@@ -87,21 +98,37 @@ function startStep(stepNo) {
   while (answeredIdx.includes(nextIdx)) nextIdx++;
   state.idxInStep = Math.min(nextIdx, steps[stepNo - 1].items.length - 1);
 
+  // 再挑戦状態をリセット
+  retry.active = false;
+  retry.step = stepNo;
+  retry.list = [];
+  retry.current = 0;
+  wrongFirst.clear();
+
   save(state);
   renderQuestion();
   show('step');
 }
-
 function renderQuestion() {
   const stepNo = state.currentStep;
-  const idx = state.idxInStep;
   const st = steps[stepNo - 1];
+
+  // 通常 or 再挑戦で出す index を決定
+  const idx = (retry.active && retry.step === stepNo)
+    ? retry.list[retry.current]
+    : state.idxInStep;
+
   const item = st.items[idx];
 
   stepTitle.textContent = `${st.title}（Step ${stepNo}）`;
-  stepProg.textContent = `進捗：${idx + 1} / ${st.items.length}`;
-  questionEl.textContent = item.q;
+  if (retry.active && retry.step === stepNo) {
+    // 再挑戦の進捗表示
+    stepProg.textContent = `再挑戦：${retry.current + 1} / ${retry.total}`;
+  } else {
+    stepProg.textContent = `進捗：${idx + 1} / ${st.items.length}`;
+  }
 
+  questionEl.textContent = (retry.active ? '【再挑戦】' : '') + item.q;
   resultEl.classList.add('hidden');
   resultEl.textContent = '';
   nextBtn.classList.add('hidden');
@@ -111,11 +138,11 @@ function renderQuestion() {
     const div = document.createElement('div');
     div.className = 'choice';
     div.innerHTML = `<strong>${['A','B','C'][i]}.</strong> ${c}`;
+    // ここで idx は「実際に出題中の index」（再挑戦中も正しく渡る）
     div.onclick = () => choose(stepNo, idx, item, i);
     choicesEl.appendChild(div);
   });
 }
-
 function choose(stepNo, idx, item, choiceIndex) {
   // 二重回答ガード
   if (Array.from(choicesEl.children).some(ch => ch.classList.contains('correct') || ch.classList.contains('wrong'))) return;
@@ -129,7 +156,12 @@ function choose(stepNo, idx, item, choiceIndex) {
     ch.style.pointerEvents = 'none';
   });
 
-  // XP付与：その問題で「未正解→正解」になったときだけ +1
+  // 通常ラウンド中に間違えたものを収集（再挑戦ラウンドでは収集しない）
+  if (!isCorrect && !retry.active) {
+    wrongFirst.add(idx);
+  }
+
+  // XP付与：その問題で「未正解→正解」になったときだけ +1（既存仕様維持）
   const prev = state.history.find(h => h.step === stepNo && h.idx === idx);
   let awarded = false;
 
@@ -152,18 +184,48 @@ function choose(stepNo, idx, item, choiceIndex) {
   `;
   nextBtn.classList.remove('hidden');
 }
-
 function nextQuestion() {
   const stepNo = state.currentStep;
   const st = steps[stepNo - 1];
 
+  // 再挑戦ラウンド中の遷移
+  if (retry.active && retry.step === stepNo) {
+    retry.current += 1; // 次の再挑戦問へ
+    if (retry.current < retry.total) {
+      renderQuestion();
+      return;
+    } else {
+      // 再挑戦を完了
+      retry.active = false;
+      retry.step = null;
+      retry.list = [];
+      retry.current = 0;
+      wrongFirst.clear();
+      // 以降は通常のStep終了と同じフローへ
+    }
+  }
+
+  // 通常ラウンドの遷移
   if (state.idxInStep < st.items.length - 1) {
     state.idxInStep += 1;
     save(state);
     renderQuestion();
     return;
   }
-  // Step終了 → 次のStep or Summaryへ
+
+  // 通常ラウンドが末尾に到達 → 再挑戦ラウンドへ移行 or Step終了
+  if (wrongFirst.size > 0) {
+    retry.active = true;
+    retry.step = stepNo;
+    // 集めた誤答Indexを配列化（順番はそのまま。ランダムにしたければシャッフル可）
+    retry.list = Array.from(wrongFirst);
+    retry.current = 0;
+    // 表示に移る（renderQuestionが retry.current=0 の問題を出す）
+    renderQuestion();
+    return;
+  }
+
+  // 誤答ゼロなら通常どおり次Step or Summaryへ
   if (stepNo < steps.length) {
     state.currentStep = stepNo + 1;
     state.idxInStep = 0;
