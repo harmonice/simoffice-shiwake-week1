@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>シムオフィス：仕訳（Week1）</title>
+  <title>シムオフィス：仕訳（Steps）</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="container">
-    <h1>シムオフィス：仕訳（Week1）</h1>
-    <p class="subtitle">学習エンタメ｜1日1問×7日</p>
+    <h1>シムオフィス：仕訳（Steps）</h1>
+    <p class="subtitle">1日5分 × 10問｜Step形式で学ぶ</p>
   </header>
 
   <main class="container">
@@ -17,23 +17,24 @@
     <section id="home">
       <div class="card">
         <h2>進捗</h2>
-        <div id="progress"><span id="xpText">0 / 70 XP</span>
+        <div id="progress"><span id="xpText">0 / 50 XP</span>
           <div class="bar"><div id="barFill" style="width:0%"></div></div>
         </div>
-        <div id="dayButtons" class="grid"></div>
-        <button id="goSummary" class="secondary">日曜の振り返りを見る</button>
+        <div id="stepButtons" class="grid"></div>
+        <button id="goSummary" class="secondary">振り返りを見る</button>
       </div>
     </section>
 
-    <!-- Day -->
-    <section id="day" class="hidden">
+    <!-- Step -->
+    <section id="step" class="hidden">
       <div class="card">
         <button id="backHome" class="link">← Homeに戻る</button>
-        <h2 id="dayTitle">Day</h2>
+        <h2 id="stepTitle">Step</h2>
+        <p id="stepProg" class="muted"></p>
         <p id="question" class="q"></p>
         <div id="choices" class="choices"></div>
         <div id="result" class="result hidden"></div>
-        <button id="nextDay" class="primary hidden">次へ</button>
+        <button id="nextBtn" class="primary hidden">次の問題へ</button>
       </div>
     </section>
 
@@ -41,15 +42,15 @@
     <section id="summary" class="hidden">
       <div class="card">
         <button id="backHome2" class="link">← Homeに戻る</button>
-        <h2>Week1 振り返り</h2>
+        <h2>Steps 振り返り</h2>
         <p id="scoreLine"></p>
-        <div id="hints" class="hints"></div>
+        <div id="breakdown" class="hints"></div>
       </div>
     </section>
   </main>
 
   <footer class="container muted">
-    © Harmonice — SimOffice shiwake Week1 (MVP)
+    © Harmonice — SimOffice Shiwake (Steps MVP)
   </footer>
 
   <script src="app.js"></script>
