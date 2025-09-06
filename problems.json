@@ -211,12 +211,9 @@
           "explain": "立替金の回収は資産（立替金）の減少と現金増加。"
         }
       ]
-    }
-  ]
-}
-
-    { "title": "仕訳の基本③", "topic": "現金預金の整理", "items": [ { "q": "（追加）", "choices": ["A","B","C"], "answer": 0, "explain": "（解説）" } ] },
-    { "title": "仕訳の基本④", "topic": "費用・収益の振替", "items": [ { "q": "（追加）", "choices": ["A","B","C"], "answer": 0, "explain": "（解説）" } ] },
-    { "title": "仕訳の基本⑤", "topic": "まとめ演習", "items": [ { "q": "（追加）", "choices": ["A","B","C"], "answer": 0, "explain": "（解説）" } ] }
+    },
+    { "title": "仕訳の基本③", "topic": "（追加予定）", "items": [] },
+    { "title": "仕訳の基本④", "topic": "（追加予定）", "items": [] },
+    { "title": "仕訳の基本⑤", "topic": "（追加予定）", "items": [] }
   ]
 }
