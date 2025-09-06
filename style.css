@@ -25,3 +25,4 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .result { margin-top: 8px; }
 .hints > .hint { background:#0b1220; border:1px solid #243047; padding:10px; border-radius:12px; margin:8px 0; }
 footer { color: var(--muted); text-align:center; padding: 24px 0 48px; font-size:.9rem; }
+.muted { color: var(--muted); }
