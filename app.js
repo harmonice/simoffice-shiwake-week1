@@ -10,6 +10,7 @@ const initState = () => ({
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initState(); } catch { return initState(); } };
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s));
 let state = load();
+
 // ==== 再挑戦用の一時状態（localStorageには保存しない） ====
 let retry = {
   active: false,     // 再挑戦ラウンド中か
@@ -44,6 +45,7 @@ const scoreLine = document.getElementById('scoreLine');
 const breakdownEl = document.getElementById('breakdown');
 
 let steps = null;
+
 // 10/10 をいったん見せてから遷移するためのワンショットフラグ
 let showFinalProgressOnce = false;
 
@@ -112,6 +114,7 @@ function startStep(stepNo) {
   renderQuestion();
   show('step');
 }
+
 // 進捗ラベル＆タイトルを同時に更新するヘルパー
 function updateProgressUI({ st, stepNo, current, total, retryMode }) {
   // ラベル
@@ -120,7 +123,6 @@ function updateProgressUI({ st, stepNo, current, total, retryMode }) {
     : `進捗：${current} / ${total}`;
 
   // タイトル（右側に (x/y) を常に出す）
-  // ※テーマが「Step 2 (9/10)」のようにタイトル連動で表示しているケースに対応
   const right = retryMode
     ? `（Step ${stepNo} 再挑戦 ${current}/${total}）`
     : `（Step ${stepNo} ${current}/${total}）`;
@@ -138,14 +140,13 @@ function renderQuestion() {
 
   const item = st.items[idx];
 
-updateProgressUI({
-  st,
-  stepNo,
-  current: (retry.active && retry.step === stepNo) ? (retry.current + 1) : (idx + 1),
-  total:   (retry.active && retry.step === stepNo) ? retry.total : st.items.length,
-  retryMode: !!(retry.active && retry.step === stepNo)
-});
-
+  updateProgressUI({
+    st,
+    stepNo,
+    current: (retry.active && retry.step === stepNo) ? (retry.current + 1) : (idx + 1),
+    total:   (retry.active && retry.step === stepNo) ? retry.total : st.items.length,
+    retryMode: !!(retry.active && retry.step === stepNo)
+  });
 
   questionEl.textContent = (retry.active ? '【再挑戦】' : '') + item.q;
   resultEl.classList.add('hidden');
@@ -162,6 +163,7 @@ updateProgressUI({
     choicesEl.appendChild(div);
   });
 }
+
 function choose(stepNo, idx, item, choiceIndex) {
   // 二重回答ガード
   if (Array.from(choicesEl.children).some(ch => ch.classList.contains('correct') || ch.classList.contains('wrong'))) return;
@@ -202,30 +204,33 @@ function choose(stepNo, idx, item, choiceIndex) {
     <p><strong>解説：</strong>${item.explain}</p>
   `;
 
-  // ▼ 追加：最後の問題は 10/10 を一度見せてから遷移
+  // ▼ 最後の問題は 10/10 を一度見せてから遷移
   const st = steps[stepNo - 1];
   const isLastQuestionInStep = !retry.active && (idx === st.items.length - 1);
-  if (isLastQuestionInStep) {// ラベル＆タイトルを 10/10 に更新
-  updateProgressUI({
-    st,
-    stepNo,
-    current: st.items.length,
-    total: st.items.length,
-    retryMode: false
-  });
+  if (isLastQuestionInStep) {
+    // ラベル＆タイトルを 10/10 に更新
+    updateProgressUI({
+      st,
+      stepNo,
+      current: st.items.length,
+      total: st.items.length,
+      retryMode: false
+    });
 
-  showFinalProgressOnce = true;
-  nextBtn.textContent = 'Step完了 → 次へ';
-} else {
-  nextBtn.textContent = '次の問題へ';
-}
+    showFinalProgressOnce = true;        // 次のクリックはワンクッション
+    nextBtn.textContent = 'Step完了 → 次へ';
+  } else {
+    nextBtn.textContent = '次の問題へ';
+  }
 
   nextBtn.classList.remove('hidden');
 }
-function nextQuestion() {  // 10/10 を見せるためのワンクッション
+
+function nextQuestion() {
+  // 10/10 を見せるためのワンクッション
   if (showFinalProgressOnce) {
     showFinalProgressOnce = false;
-    return; // このクリックではまだ遷移しない（10/10を見せたままにする）
+    return; // このクリックでは遷移しない（10/10を見せたまま）
   }
 
   const stepNo = state.currentStep;
