@@ -112,6 +112,21 @@ function startStep(stepNo) {
   renderQuestion();
   show('step');
 }
+// 進捗ラベル＆タイトルを同時に更新するヘルパー
+function updateProgressUI({ st, stepNo, current, total, retryMode }) {
+  // ラベル
+  stepProg.textContent = retryMode
+    ? `再挑戦：${current} / ${total}`
+    : `進捗：${current} / ${total}`;
+
+  // タイトル（右側に (x/y) を常に出す）
+  // ※テーマが「Step 2 (9/10)」のようにタイトル連動で表示しているケースに対応
+  const right = retryMode
+    ? `（Step ${stepNo} 再挑戦 ${current}/${total}）`
+    : `（Step ${stepNo} ${current}/${total}）`;
+  stepTitle.textContent = `${st.title}${right}`;
+}
+
 function renderQuestion() {
   const stepNo = state.currentStep;
   const st = steps[stepNo - 1];
@@ -123,13 +138,14 @@ function renderQuestion() {
 
   const item = st.items[idx];
 
-  stepTitle.textContent = `${st.title}（Step ${stepNo}）`;
-  if (retry.active && retry.step === stepNo) {
-    // 再挑戦の進捗表示
-    stepProg.textContent = `再挑戦：${retry.current + 1} / ${retry.total}`;
-  } else {
-    stepProg.textContent = `進捗：${idx + 1} / ${st.items.length}`;
-  }
+updateProgressUI({
+  st,
+  stepNo,
+  current: (retry.active && retry.step === stepNo) ? (retry.current + 1) : (idx + 1),
+  total:   (retry.active && retry.step === stepNo) ? retry.total : st.items.length,
+  retryMode: !!(retry.active && retry.step === stepNo)
+});
+
 
   questionEl.textContent = (retry.active ? '【再挑戦】' : '') + item.q;
   resultEl.classList.add('hidden');
@@ -189,13 +205,20 @@ function choose(stepNo, idx, item, choiceIndex) {
   // ▼ 追加：最後の問題は 10/10 を一度見せてから遷移
   const st = steps[stepNo - 1];
   const isLastQuestionInStep = !retry.active && (idx === st.items.length - 1);
-  if (isLastQuestionInStep) {
-    stepProg.textContent = `進捗：${st.items.length} / ${st.items.length}`;
-    showFinalProgressOnce = true;
-    nextBtn.textContent = 'Step完了 → 次へ';
-  } else {
-    nextBtn.textContent = '次の問題へ';
-  }
+  if (isLastQuestionInStep) {// ラベル＆タイトルを 10/10 に更新
+  updateProgressUI({
+    st,
+    stepNo,
+    current: st.items.length,
+    total: st.items.length,
+    retryMode: false
+  });
+
+  showFinalProgressOnce = true;
+  nextBtn.textContent = 'Step完了 → 次へ';
+} else {
+  nextBtn.textContent = '次の問題へ';
+}
 
   nextBtn.classList.remove('hidden');
 }
