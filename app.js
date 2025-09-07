@@ -19,7 +19,7 @@ let retry = {
   current: 0,        // 何問目を出しているか（0..total-1）
   get total(){ return this.list.length; }
 };
-// 通常ラウンド中に間違えた index を集める（Stepごとにクリア）
+// 通常ラウンド中に間違えた index を集める（参考用・今回の仕様では再挑戦は「未クリア全て」）
 let wrongFirst = new Set();
 
 // ---- 画面要素 ----
@@ -76,7 +76,10 @@ function renderHome() {
   stepButtons.innerHTML = '';
   steps.forEach((st, i) => {
     const stepNo = i + 1;
-    const corrects = state.history.filter(h => h.step === stepNo && h.correct).length;
+    // そのStepで「正解済み」の数（重複配慮）
+    const corrects = st.items.reduce((acc, _, idx) => {
+      return acc + (state.history.some(h => h.step === stepNo && h.idx === idx && h.correct) ? 1 : 0);
+    }, 0);
     const done = corrects === st.items.length && st.items.length > 0;
     const btn = document.createElement('button');
     btn.className = 'daybtn' + (done ? ' done' : '');
@@ -90,13 +93,15 @@ function renderHome() {
 function startStep(stepNo) {
   state.currentStep = stepNo;
 
-  // 未回答の最初の問題へ（履歴から決定）
-  const answeredIdx = state.history.filter(h => h.step === stepNo).map(h => h.idx);
+  // 次に出すのは「未クリア（correct=false または記録なし）」の最初
+  const cleared = new Set(
+    state.history.filter(h => h.step === stepNo && h.correct).map(h => h.idx)
+  );
   let nextIdx = 0;
-  while (answeredIdx.includes(nextIdx)) nextIdx++;
+  while (cleared.has(nextIdx)) nextIdx++;
   state.idxInStep = Math.min(nextIdx, steps[stepNo - 1].items.length - 1);
 
-  // 再挑戦状態をリセット
+  // 再挑戦状態リセット
   retry.active = false; retry.step = stepNo; retry.list = []; retry.current = 0;
   wrongFirst.clear();
 
@@ -113,7 +118,7 @@ function getStepCountEl() {
     el.id = 'stepCount';
     el.style.marginLeft = '8px';
     el.style.opacity = '0.9';
-    // 最初にタイトルの既存 (x/y) を除去してから隣に設置
+    // 既存の (x/y) がタイトルに含まれていたら除去してベースだけ残す
     if (stepTitle && stepTitle.textContent) {
       stepTitle.textContent = stepTitle.textContent.replace(/\([^)]*\)\s*$/, '').trim();
     }
@@ -122,18 +127,15 @@ function getStepCountEl() {
   return el;
 }
 function updateProgressUI({ st, stepNo, current, total, retryMode }) {
-  // ラベル（存在しないテーマでも落ちないようにガード）
   if (stepProg) {
     stepProg.textContent = retryMode
       ? `再挑戦：${current} / ${total}`
       : `進捗：${current} / ${total}`;
   }
-  // タイトル本体から従来の (x/y) を削除してベースだけにする
   if (stepTitle && st) {
     const base = `${st.title}（Step ${stepNo}）`;
     stepTitle.textContent = base.replace(/\([^)]*\)\s*$/, '').trim();
   }
-  // 右側 (x/y) を専用要素で強制表示
   const countEl = getStepCountEl();
   countEl.textContent = retryMode ? `（再挑戦 ${current}/${total}）` : `（${current}/${total}）`;
 }
@@ -182,16 +184,18 @@ function choose(stepNo, idx, item, choiceIndex) {
 
   if (!isCorrect && !retry.active) wrongFirst.add(idx);
 
+  // ---- 成績更新（単調増加：一度正解なら以後ずっと correct=true）----
   const prev = state.history.find(h => h.step === stepNo && h.idx === idx);
   let awarded = false;
 
   if (!prev) {
     if (isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; }
-    state.history.push({ step: stepNo, idx, correct: isCorrect, choiceIndex });
+    state.history.push({ step: stepNo, idx, correct: !!isCorrect, choiceIndex });
   } else {
+    const newCorrect = prev.correct || isCorrect; // ←重要：正解は上書きで消さない
     if (!prev.correct && isCorrect) { state.xp = Math.min(50, state.xp + 1); awarded = true; }
     state.history = state.history.map(h =>
-      (h.step === stepNo && h.idx === idx) ? { ...h, correct: isCorrect, choiceIndex } : h
+      (h.step === stepNo && h.idx === idx) ? { ...h, correct: newCorrect, choiceIndex } : h
     );
   }
   save(state);
@@ -217,20 +221,21 @@ function choose(stepNo, idx, item, choiceIndex) {
 
 // ---- 次へ ----
 function nextQuestion() {
-  if (showFinalProgressOnce) {
-    showFinalProgressOnce = false;
-    return; // このクリックでは遷移しない（10/10を見せたまま）
-  }
+  if (showFinalProgressOnce) { showFinalProgressOnce = false; return; }
 
   const stepNo = state.currentStep;
   const st = steps[stepNo - 1];
 
+  // 再挑戦ラウンド中の遷移
   if (retry.active && retry.step === stepNo) {
     retry.current += 1;
     if (retry.current < retry.total) { renderQuestion(); return; }
+    // 再挑戦1周終了
     retry.active = false; retry.step = null; retry.list = []; retry.current = 0; wrongFirst.clear();
+    // （ここでは続行して終了判定へ）
   }
 
+  // 通常ラウンドの遷移
   if (state.idxInStep < st.items.length - 1) {
     state.idxInStep += 1;
     save(state);
@@ -238,15 +243,20 @@ function nextQuestion() {
     return;
   }
 
-  if (wrongFirst.size > 0) {
+  // ---- Step末：まだ正解になっていない問題をすべて再挑戦 ----
+  const pending = st.items
+    .map((_, i) => i)
+    .filter(i => !state.history.some(h => h.step === stepNo && h.idx === i && h.correct));
+  if (pending.length > 0) {
     retry.active = true;
     retry.step = stepNo;
-    retry.list = Array.from(wrongFirst); // 並びそのまま。必要ならシャッフル可
+    retry.list = pending.slice(); // 必要ならシャッフル可
     retry.current = 0;
     renderQuestion();
     return;
   }
 
+  // 誤答ゼロ（＝全問正解）なら通常どおり次Step or Summaryへ
   if (stepNo < steps.length) {
     state.currentStep = stepNo + 1;
     state.idxInStep = 0;
@@ -260,14 +270,17 @@ function nextQuestion() {
 
 // ---- Summary描画 ----
 function renderSummary() {
-  const totalCorrect = state.history.filter(h => h.correct).length;
+  const totalCorrect = steps.reduce((acc, st, i) => {
+    const stepNo = i + 1;
+    return acc + st.items.reduce((a, _, idx) => a + (state.history.some(h => h.step === stepNo && h.idx === idx && h.correct) ? 1 : 0), 0);
+  }, 0);
   const totalQuestions = steps.reduce((n, st) => n + st.items.length, 0);
   scoreLine.textContent = `総正答：${totalCorrect} / ${totalQuestions}（XP：${state.xp}/50）`;
 
   breakdownEl.innerHTML = '';
   steps.forEach((st, i) => {
     const stepNo = i + 1;
-    const c = state.history.filter(h => h.step === stepNo && h.correct).length;
+    const c = st.items.reduce((a, _, idx) => a + (state.history.some(h => h.step === stepNo && h.idx === idx && h.correct) ? 1 : 0), 0);
     const div = document.createElement('div');
     div.className = 'hint';
     div.innerHTML = `<strong>Step ${stepNo}：</strong>${c} / ${st.items.length} 正解<br><em>Topics：</em>${st.topic || '—'}`;
