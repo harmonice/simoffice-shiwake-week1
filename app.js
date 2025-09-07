@@ -290,3 +290,278 @@ function renderSummary() {
 
 boot();
 
+/* =======================
+   復習モードプラグイン v1
+   使い方：このブロックを app.js の末尾にコピペ
+   ======================= */
+(function(){
+  // 設定
+  const REVIEW_MAX = 10;              // 復習は最大何問か
+  const REVIEW_COUNTS_FOR_XP = true;  // 復習で正解→未クリアならXP+1するか
+
+  // ---- Summaryに「未クリアを復習」ボタンを足す（renderSummary をラップ） ----
+  const _renderSummary = window.renderSummary;
+  window.renderSummary = function(){
+    _renderSummary.apply(this, arguments);
+
+    // コンテナ（なければ作る）
+    let ctl = document.getElementById('reviewControls');
+    if (!ctl) {
+      ctl = document.createElement('div');
+      ctl.id = 'reviewControls';
+      ctl.style.marginTop = '12px';
+      ctl.style.display = 'flex';
+      ctl.style.gap = '8px';
+      // breakdownEl（各Step内訳）の上に置く
+      secSummary.insertBefore(ctl, breakdownEl);
+    } else {
+      ctl.innerHTML = '';
+    }
+
+    // ボタン作成
+    const btn = document.createElement('button');
+    btn.textContent = '未クリアを復習（最大10問）';
+    styleBtn(btn);
+    btn.onclick = startReview;
+    ctl.appendChild(btn);
+
+    // 未クリアゼロなら無効化
+    if (countPendingAll() === 0) {
+      btn.disabled = true;
+      btn.textContent = '未クリアはありません 🎉';
+      btn.style.opacity = '0.7';
+      btn.style.cursor = 'default';
+    }
+  };
+
+  function styleBtn(b){
+    b.style.padding = '10px 14px';
+    b.style.borderRadius = '10px';
+    b.style.border = '1px solid #3a3a3a';
+    b.style.background = '#2a2a2a';
+    b.style.color = '#fff';
+    b.style.cursor = 'pointer';
+  }
+
+  // ---- 復習開始 ----
+  let review = { queue: [], pos: 0, overlay: null };
+  function startReview(){
+    // 未クリアのプールを作る
+    review.queue = buildPendingPool();
+    review.pos = 0;
+    if (review.queue.length === 0){
+      toast('未クリアはありません 🎉');
+      return;
+    }
+    openOverlay();
+    renderReviewQuestion();
+  }
+
+  // 全Stepの「まだ正解になっていない」問題を集めてシャッフル→最大 REVIEW_MAX 件
+  function buildPendingPool(){
+    const pool = [];
+    steps.forEach((st, si)=>{
+      const stepNo = si + 1;
+      st.items.forEach((_, idx)=>{
+        const solved = state.history.some(h => h.step === stepNo && h.idx === idx && h.correct);
+        if (!solved) pool.push({ step: stepNo, idx });
+      });
+    });
+    shuffleInPlace(pool);
+    return pool.slice(0, REVIEW_MAX);
+  }
+
+  function countPendingAll(){
+    let n = 0;
+    steps.forEach((st, si)=>{
+      const stepNo = si + 1;
+      st.items.forEach((_, idx)=>{
+        if (!state.history.some(h => h.step === stepNo && h.idx === idx && h.correct)) n++;
+      });
+    });
+    return n;
+  }
+
+  // ---- Overlay UI ----
+  let qEl, metaEl, choicesEl, footerBtn;
+  function openOverlay(){
+    closeOverlay(); // 既存があれば破棄
+
+    const ov = document.createElement('div');
+    ov.id = 'reviewOverlay';
+    ov.style.position = 'fixed';
+    ov.style.inset = '0';
+    ov.style.background = 'rgba(0,0,0,.6)';
+    ov.style.display = 'flex';
+    ov.style.alignItems = 'center';
+    ov.style.justifyContent = 'center';
+    ov.style.zIndex = '9999';
+
+    const card = document.createElement('div');
+    card.style.background = '#1f1f1f';
+    card.style.color = '#fff';
+    card.style.padding = '16px';
+    card.style.borderRadius = '12px';
+    card.style.width = 'min(760px,90vw)';
+    card.style.boxShadow = '0 10px 30px rgba(0,0,0,.35)';
+
+    const title = document.createElement('div');
+    title.textContent = '復習モード（未クリア）';
+    title.style.fontWeight = '700';
+    title.style.marginBottom = '8px';
+
+    metaEl = document.createElement('div');
+    metaEl.style.opacity = '.9';
+    metaEl.style.marginBottom = '12px';
+
+    qEl = document.createElement('div');
+    qEl.style.fontSize = '16px';
+    qEl.style.lineHeight = '1.6';
+    qEl.style.marginBottom = '12px';
+
+    choicesEl = document.createElement('div');
+
+    const footer = document.createElement('div');
+    footer.style.marginTop = '12px';
+    footer.style.display = 'flex';
+    footer.style.justifyContent = 'flex-end';
+    footer.style.gap = '8px';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'やめる';
+    styleBtn(cancelBtn);
+    cancelBtn.onclick = () => { closeOverlay(); renderHome(); renderSummary(); };
+
+    footerBtn = document.createElement('button');
+    footerBtn.textContent = '次へ';
+    styleBtn(footerBtn);
+    footerBtn.style.display = 'none';
+    footerBtn.onclick = nextReview;
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(footerBtn);
+
+    card.appendChild(title);
+    card.appendChild(metaEl);
+    card.appendChild(qEl);
+    card.appendChild(choicesEl);
+    card.appendChild(footer);
+    ov.appendChild(card);
+    document.body.appendChild(ov);
+    review.overlay = ov;
+  }
+  function closeOverlay(){
+    if (review.overlay){ review.overlay.remove(); review.overlay = null; }
+  }
+
+  function renderReviewQuestion(){
+    const cur = review.queue[review.pos];
+    if (!cur){ finishReview(); return; }
+
+    const st = steps[cur.step - 1];
+    const item = st.items[cur.idx];
+
+    metaEl.textContent = `問題 ${review.pos + 1} / ${review.queue.length}　|　Step ${cur.step}`;
+    qEl.textContent = item.q;
+
+    footerBtn.style.display = 'none';
+    choicesEl.innerHTML = '';
+    item.choices.forEach((ch, i)=>{
+      const b = document.createElement('button');
+      b.textContent = ch;
+      styleBtn(b);
+      b.style.display = 'block';
+      b.style.width = '100%';
+      b.style.textAlign = 'left';
+      b.style.margin = '6px 0';
+      b.onclick = ()=>{
+        // ロック
+        Array.from(choicesEl.children).forEach(x=>x.style.pointerEvents='none');
+
+        const isCorrect = (i === item.answer);
+        // 成績に反映（未クリア→正解ならXP+1）
+        applyAnswerRecordReview(cur.step, cur.idx, isCorrect);
+
+        const fb = document.createElement('div');
+        fb.style.marginTop = '8px';
+        fb.innerHTML = isCorrect
+          ? '🎯 <b>正解！</b> よく復習できました。'
+          : '😢 <b>不正解</b> — 解説を見直してもう一度挑戦しよう。';
+        choicesEl.appendChild(fb);
+
+        const expl = document.createElement('div');
+        expl.style.opacity = '.9';
+        expl.style.marginTop = '6px';
+        expl.innerHTML = `<b>解説：</b>${item.explain}`;
+        choicesEl.appendChild(expl);
+
+        footerBtn.style.display = 'inline-block';
+      };
+      choicesEl.appendChild(b);
+    });
+  }
+
+  function nextReview(){
+    review.pos++;
+    if (review.pos < review.queue.length){
+      renderReviewQuestion();
+    } else {
+      finishReview();
+    }
+  }
+
+  function finishReview(){
+    toast('復習おつかれさま！');
+    closeOverlay();
+    // 画面再描画（進捗が反映される）
+    renderHome();
+    renderSummary();
+  }
+
+  // 既存ルールに合わせて「未クリア→正解になったら+1XP、二重加算なし」を適用
+  function applyAnswerRecordReview(stepNo, idx, isCorrect){
+    const item = steps[stepNo - 1].items[idx];
+    let rec = state.history.find(h => h.step === stepNo && h.idx === idx);
+    if (!rec){
+      // 新規
+      rec = { step: stepNo, idx, correct: !!isCorrect, choiceIndex: isCorrect ? item.answer : null };
+      if (REVIEW_COUNTS_FOR_XP && isCorrect) state.xp = Math.min(50, state.xp + 1);
+      state.history.push(rec);
+    } else {
+      // 「一度正解したら正解のまま」を維持
+      const wasCorrect = !!rec.correct;
+      const nowCorrect = wasCorrect || !!isCorrect;
+      if (!wasCorrect && nowCorrect && REVIEW_COUNTS_FOR_XP) state.xp = Math.min(50, state.xp + 1);
+      rec.correct = nowCorrect;
+      if (isCorrect) rec.choiceIndex = item.answer;
+      state.history = state.history.map(h => (h.step===stepNo && h.idx===idx) ? rec : h);
+    }
+    save(state);
+  }
+
+  // ---- 小物 ----
+  function shuffleInPlace(arr){
+    for (let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+  function toast(msg){
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.position = 'fixed';
+    t.style.left = '50%';
+    t.style.bottom = '40px';
+    t.style.transform = 'translateX(-50%)';
+    t.style.background = '#222';
+    t.style.color = '#fff';
+    t.style.padding = '10px 14px';
+    t.style.borderRadius = '10px';
+    t.style.boxShadow = '0 6px 18px rgba(0,0,0,.25)';
+    t.style.zIndex = '10000';
+    document.body.appendChild(t);
+    setTimeout(()=>{ t.style.transition = 'opacity .3s'; t.style.opacity = '0'; }, 1700);
+    setTimeout(()=>{ t.remove(); }, 2100);
+  }
+})();
